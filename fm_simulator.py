@@ -606,6 +606,13 @@ class SimulatorEngine:
             Player("Amad","RW",24,84,76,74,50,68,40),
             Player("Zirkzee","ST",25,78,82,78,44,80,55),
             Player("Eriksen","CM",34,62,76,90,58,62,25),
+            Player("Bayindir","GK",27,55,14,66,82,76,12),
+            Player("Lindelof","CB",31,76,44,72,84,80,18),
+            Player("Maguire","CB",34,70,52,70,82,84,20),
+            Player("Shaw","FB",30,78,60,78,80,78,28),
+            Player("Casemiro","CDM",35,72,68,78,84,86,15),
+            Player("Hannibal","CM",23,78,72,80,68,72,20),
+            Player("Pellistri","RW",23,88,72,70,46,70,18),
         ]
         self.my_team=Team("Manchester United",250,starters,subs)
         self.game_date=GameDate(2026,8,8)
