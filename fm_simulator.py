@@ -13,6 +13,37 @@ TRANSFER_MONTHS = {1, 7, 8}
 INSTRUCTIONS = ["기본", "공격 가담", "수비 대기", "오버래핑", "인버티드 런", "딥 라잉",
                 "박스 투 박스", "전진 플레이메이커", "타깃맨", "압박 선봉"]
 
+# 시즌 일정 순서: pl=프리미어리그, fa=FA컵, lc=리그컵, ucl=챔피언스리그
+SEASON_SCHEDULE = [
+    # 8월
+    "pl","pl","lc",
+    # 9월
+    "pl","ucl","pl","pl",
+    # 10월
+    "pl","ucl","lc","pl","pl",
+    # 11월
+    "pl","ucl","pl","pl","pl",
+    # 12월
+    "pl","pl","lc","pl","pl","pl",
+    # 1월 (이적 시장 오픈)
+    "pl","fa","ucl","pl","pl","pl",
+    # 2월
+    "pl","fa","ucl","pl","pl",
+    # 3월
+    "pl","fa","ucl","pl","pl",
+    # 4월
+    "pl","fa","ucl","pl","pl",
+    # 5월
+    "pl","pl","fa","pl","pl","pl","pl",
+]
+
+COMP_LABEL = {
+    "pl":  "🏴󠁧󠁢󠁥󠁮󠁧󠁿 프리미어 리그",
+    "fa":  "🏆 FA컵",
+    "lc":  "🥈 리그컵",
+    "ucl": "⭐ UEFA 챔피언스리그",
+}
+
 def is_admin():
     try: return ctypes.windll.shell32.IsUserAnAdmin()
     except: return False
@@ -24,22 +55,22 @@ class GameDate:
     MONTH_NAMES = ["","1월","2월","3월","4월","5월","6월",
                    "7월","8월","9월","10월","11월","12월"]
     def __init__(self, year=2026, month=8, day=1):
-        self.year = year; self.month = month; self.day = day
+        self.year=year; self.month=month; self.day=day
     def advance_match(self, team=None, pool=None):
-        self.day += 7
-        if self.day > 28:
-            self.day -= 28; self.month += 1
-            if self.month > 12:
-                self.month = 1; self.year += 1
+        self.day+=7
+        if self.day>28:
+            self.day-=28; self.month+=1
+            if self.month>12:
+                self.month=1; self.year+=1
                 if team:
-                    for p in team.all_players(): p.age += 1
+                    for p in team.all_players(): p.age+=1
                 if pool:
-                    for p in pool: p.age += 1
+                    for p in pool: p.age+=1
     def is_transfer_window(self): return self.month in TRANSFER_MONTHS
     def __str__(self): return f"{self.year}년 {self.MONTH_NAMES[self.month]} {self.day}일"
     def to_dict(self): return {"year":self.year,"month":self.month,"day":self.day}
     @classmethod
-    def from_dict(cls, d): return cls(d.get("year",2026),d.get("month",8),d.get("day",1))
+    def from_dict(cls,d): return cls(d.get("year",2026),d.get("month",8),d.get("day",1))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. Player & Team
@@ -107,7 +138,6 @@ class Team:
 # 3. 대회 시스템
 # ══════════════════════════════════════════════════════════════════════════════
 class LeagueEntry:
-    """리그 테이블 한 팀 행"""
     def __init__(self, name):
         self.name=name; self.w=self.d=self.l=self.gf=self.ga=0
     @property
@@ -124,7 +154,6 @@ class LeagueEntry:
         e.gf=d["gf"]; e.ga=d["ga"]; return e
 
 class Competition:
-    """리그 / 컵 / UCL 공통 베이스"""
     def __init__(self, name):
         self.name=name
     def to_dict(self): return {"type":self.__class__.__name__,"name":self.name}
@@ -145,73 +174,66 @@ class League(Competition):
 
     def __init__(self, my_team_name="Manchester United"):
         super().__init__("프리미어 리그")
-        self.my_team_name = my_team_name
-        self.table = {n: LeagueEntry(n) for n in self.TEAMS}
+        self.my_team_name=my_team_name
+        self.table={n:LeagueEntry(n) for n in self.TEAMS}
         if my_team_name not in self.table:
-            self.table[my_team_name] = LeagueEntry(my_team_name)
-        # 홈&어웨이 전체 일정 생성 (팀 수 N → (N-1)*2 경기)
-        names = list(self.table.keys())
-        self.fixtures = []   # (home, away)
+            self.table[my_team_name]=LeagueEntry(my_team_name)
+        names=list(self.table.keys())
+        self.fixtures=[]
         for i,h in enumerate(names):
             for j,a in enumerate(names):
                 if i!=j: self.fixtures.append((h,a))
         random.shuffle(self.fixtures)
-        self.fixture_idx = 0   # 다음 진행할 경기 인덱스
+        self.fixture_idx=0
 
     def next_my_fixture(self):
-        """내 팀 다음 경기 상대 반환 (home여부, 상대명)"""
-        mn = self.my_team_name
-        while self.fixture_idx < len(self.fixtures):
-            h,a = self.fixtures[self.fixture_idx]
+        mn=self.my_team_name
+        while self.fixture_idx<len(self.fixtures):
+            h,a=self.fixtures[self.fixture_idx]
             if h==mn or a==mn:
-                return (h==mn), (a if h==mn else h)
-            # 내 팀이 아닌 경기는 CPU끼리 빠르게 시뮬
+                return (h==mn),(a if h==mn else h)
             self._sim_cpu(h,a)
             self.fixture_idx+=1
-        return None, None   # 시즌 종료
+        return None,None
 
-    def _sim_cpu(self, home_name, away_name):
-        bs_h = self.BASE_STATS.get(home_name,75)+random.randint(-5,5)
-        bs_a = self.BASE_STATS.get(away_name,75)+random.randint(-5,5)
-        hg = max(0,int(random.gauss(bs_h/30,1.0)))
-        ag = max(0,int(random.gauss(bs_a/30,1.0)))
+    def _sim_cpu(self,home_name,away_name):
+        bs_h=self.BASE_STATS.get(home_name,75)+random.randint(-5,5)
+        bs_a=self.BASE_STATS.get(away_name,75)+random.randint(-5,5)
+        hg=max(0,int(random.gauss(bs_h/30,1.0)))
+        ag=max(0,int(random.gauss(bs_a/30,1.0)))
         self._record(home_name,away_name,hg,ag)
         self.fixture_idx+=1
 
-    def _record(self, hn, an, hg, ag):
+    def _record(self,hn,an,hg,ag):
         h=self.table.get(hn); a=self.table.get(an)
         if not h or not a: return
-        h.gf+=hg; h.ga+=ag; a.gf+=ag; a.ga+=hg
-        if hg>ag: h.w+=1; a.l+=1
-        elif hg<ag: a.w+=1; h.l+=1
-        else: h.d+=1; a.d+=1
+        h.gf+=hg;h.ga+=ag;a.gf+=ag;a.ga+=hg
+        if hg>ag: h.w+=1;a.l+=1
+        elif hg<ag: a.w+=1;h.l+=1
+        else: h.d+=1;a.d+=1
 
-    def record_my_result(self, is_home, opp_name, my_g, opp_g):
+    def record_my_result(self,is_home,opp_name,my_g,opp_g):
         mn=self.my_team_name
         if is_home: self._record(mn,opp_name,my_g,opp_g)
         else:       self._record(opp_name,mn,opp_g,my_g)
         self.fixture_idx+=1
 
     def sorted_table(self):
-        return sorted(self.table.values(),
-                      key=lambda e:(-e.pts,-e.gd,-e.gf,e.name))
+        return sorted(self.table.values(),key=lambda e:(-e.pts,-e.gd,-e.gf,e.name))
 
     @property
-    def is_finished(self):
-        return self.fixture_idx >= len(self.fixtures)
+    def is_finished(self): return self.fixture_idx>=len(self.fixtures)
 
     def to_dict(self):
         d=super().to_dict()
         d.update({"my_team_name":self.my_team_name,
                   "table":{k:v.to_dict() for k,v in self.table.items()},
-                  "fixtures":self.fixtures,
-                  "fixture_idx":self.fixture_idx})
+                  "fixtures":self.fixtures,"fixture_idx":self.fixture_idx})
         return d
 
     @classmethod
     def from_dict(cls,d):
-        obj=cls.__new__(cls)
-        Competition.__init__(obj,d["name"])
+        obj=cls.__new__(cls); Competition.__init__(obj,d["name"])
         obj.my_team_name=d["my_team_name"]
         obj.table={k:LeagueEntry.from_dict(v) for k,v in d["table"].items()}
         obj.fixtures=[tuple(f) for f in d["fixtures"]]
@@ -219,133 +241,87 @@ class League(Competition):
         return obj
 
 class KnockoutCup(Competition):
-    """단판 토너먼트 (FA컵 / 리그컵)"""
     def __init__(self, name, teams, my_team_name):
         super().__init__(name)
-        self.my_team_name = my_team_name
-        self.rounds_left = self._build_bracket(teams)
-        self.eliminated = False
-        self.champion = None
+        self.my_team_name=my_team_name
+        self.rounds_left=self._build_bracket(teams)
+        self.eliminated=False; self.champion=None
 
-    def _build_bracket(self, teams):
-        # 팀 수를 2의 거듭제곱으로 맞추기 위해 부전승 처리
-        t = list(teams)
-        random.shuffle(t)
-        n = 1
-        while n < len(t): n*=2
-        t += ["BYE"]*(n-len(t))
-        return [t]  # rounds_left[0] = 현재 라운드 참가자 목록
+    def _build_bracket(self,teams):
+        t=list(teams); random.shuffle(t)
+        n=1
+        while n<len(t): n*=2
+        t+=["BYE"]*(n-len(t))
+        return [t]
 
     @property
     def current_round_teams(self):
         return self.rounds_left[0] if self.rounds_left else []
 
     def my_opponent(self):
-        teams = self.current_round_teams
-        if self.eliminated or self.champion or not teams:
-            return None
-        if self.my_team_name not in teams:
-            return None
-        idx = teams.index(self.my_team_name)
-        partner_idx = idx^1  # XOR → 짝 찾기
-        opp = teams[partner_idx]
-        return opp if opp!="BYE" else None  # BYE면 자동 진출
+        teams=self.current_round_teams
+        if self.eliminated or self.champion or not teams: return None
+        if self.my_team_name not in teams: return None
+        idx=teams.index(self.my_team_name)
+        opp=teams[idx^1]
+        return opp if opp!="BYE" else None
 
     def advance_cpu_matches(self):
-        """내 팀 경기를 제외한 이번 라운드 CPU 대결 처리"""
-        teams = self.current_round_teams
-        winners = []
-        mn = self.my_team_name
-        i = 0
-        while i < len(teams):
-            h,a = teams[i], teams[i+1]
-            if mn in (h,a):
-                winners.append(mn)  # 내 경기는 나중에
-                i+=2; continue
+        teams=self.current_round_teams
+        winners=[]; mn=self.my_team_name; i=0
+        while i<len(teams):
+            h,a=teams[i],teams[i+1]
+            if mn in (h,a): winners.append(mn); i+=2; continue
             if h=="BYE": winners.append(a); i+=2; continue
             if a=="BYE": winners.append(h); i+=2; continue
-            # CPU vs CPU
-            winner = random.choice([h,a])
-            winners.append(winner)
-            i+=2
-        self.rounds_left[0] = winners
+            winners.append(random.choice([h,a])); i+=2
+        self.rounds_left[0]=winners
 
-    def record_my_result(self, won):
-        teams = self.current_round_teams
-        mn = self.my_team_name
+    def record_my_result(self,won):
+        teams=self.current_round_teams; mn=self.my_team_name
         if not won:
-            self.eliminated = True
-            # 내 자리를 상대로 교체
-            idx = teams.index(mn)
-            opp = teams[idx^1]
-            teams[idx] = opp
-        # 이번 라운드 CPU 경기 마저 처리 후 다음 라운드로
+            self.eliminated=True
+            idx=teams.index(mn); teams[idx]=teams[idx^1]
         self.advance_cpu_matches()
-        next_r = []
-        cur = self.rounds_left[0]
-        i=0
-        while i<len(cur):
-            if i+1<len(cur):
-                next_r.append(cur[i])  # 이미 advance_cpu_matches가 winners 만들었음
-            i+=2
-        # 실제로는 advance_cpu_matches 후 rounds_left[0]이 이미 다음 라운드 팀들
-        # → 위의 로직을 다시 정리
-        self.rounds_left[0] = self.rounds_left[0]  # 이미 승자 목록
-
-        if len(self.rounds_left[0]) == 1:
-            self.champion = self.rounds_left[0][0]
-            self.rounds_left = []
-        elif len(self.rounds_left[0]) > 1:
-            self.rounds_left = [self.rounds_left[0]]
+        if len(self.rounds_left[0])==1:
+            self.champion=self.rounds_left[0][0]; self.rounds_left=[]
+        elif len(self.rounds_left[0])>1:
+            self.rounds_left=[self.rounds_left[0]]
 
     def round_name(self):
-        n = len(self.current_round_teams)
-        names = {64:"64강",32:"32강",16:"16강",8:"8강",4:"4강",2:"결승"}
-        return names.get(n, f"{n}강")
+        n=len(self.current_round_teams)
+        names={64:"64강",32:"32강",16:"16강",8:"8강",4:"4강",2:"결승"}
+        return names.get(n,f"{n}강")
 
     def to_dict(self):
         d=super().to_dict()
-        d.update({"my_team_name":self.my_team_name,
-                  "rounds_left":self.rounds_left,
-                  "eliminated":self.eliminated,
-                  "champion":self.champion})
+        d.update({"my_team_name":self.my_team_name,"rounds_left":self.rounds_left,
+                  "eliminated":self.eliminated,"champion":self.champion})
         return d
 
     @classmethod
     def from_dict(cls,d):
-        obj=cls.__new__(cls)
-        Competition.__init__(obj,d["name"])
-        obj.my_team_name=d["my_team_name"]
-        obj.rounds_left=d["rounds_left"]
-        obj.eliminated=d["eliminated"]
-        obj.champion=d["champion"]
+        obj=cls.__new__(cls); Competition.__init__(obj,d["name"])
+        obj.my_team_name=d["my_team_name"]; obj.rounds_left=d["rounds_left"]
+        obj.eliminated=d["eliminated"]; obj.champion=d["champion"]
         return obj
 
 class UCL(Competition):
-    """UEFA 챔피언스 리그: 조별리그 → 토너먼트"""
-    GROUP_TEAMS = {
+    GROUP_TEAMS={
         "A":["Manchester United","Real Madrid","PSG","Galatasaray"],
         "B":["Manchester City","Bayern","Napoli","Copenhagen"],
         "C":["Arsenal","Inter","Sporting","FC Porto"],
         "D":["Liverpool","Barcelona","Shakhtar","Lens"],
     }
-    def __init__(self, my_team_name="Manchester United"):
+    def __init__(self,my_team_name="Manchester United"):
         super().__init__("UEFA 챔피언스 리그")
         self.my_team_name=my_team_name
-        # 내 팀이 속한 조 찾기
         self.my_group=None
         for g,teams in self.GROUP_TEAMS.items():
-            if my_team_name in teams:
-                self.my_group=g; break
+            if my_team_name in teams: self.my_group=g; break
         if not self.my_group:
-            self.my_group="A"
-            self.GROUP_TEAMS["A"][3]=my_team_name
-        # 조별 테이블
-        self.group_table={
-            g:{n:LeagueEntry(n) for n in teams}
-            for g,teams in self.GROUP_TEAMS.items()
-        }
-        # 조별 일정 (홈&어웨이)
+            self.my_group="A"; self.GROUP_TEAMS["A"][3]=my_team_name
+        self.group_table={g:{n:LeagueEntry(n) for n in teams} for g,teams in self.GROUP_TEAMS.items()}
         self.group_fixtures={g:[] for g in self.GROUP_TEAMS}
         for g,teams in self.GROUP_TEAMS.items():
             for i,h in enumerate(teams):
@@ -353,36 +329,34 @@ class UCL(Competition):
                     if i!=j: self.group_fixtures[g].append((h,a))
             random.shuffle(self.group_fixtures[g])
         self.group_fixture_idx={g:0 for g in self.GROUP_TEAMS}
-        # 토너먼트
-        self.phase="group"   # group / knockout
-        self.ko=None          # KnockoutCup 인스턴스
+        self.phase="group"; self.ko=None
 
-    # ── 조별리그 ──────────────────────────────────────────────────────────
     @property
     def group_done(self):
-        return self.group_fixture_idx[self.my_group] >= len(self.group_fixtures[self.my_group])
+        return self.group_fixture_idx[self.my_group]>=len(self.group_fixtures[self.my_group])
+
+    @property
+    def is_active(self):
+        if self.phase=="group": return not self.group_done
+        if self.phase=="knockout" and self.ko:
+            return not self.ko.eliminated and not self.ko.champion
+        return False
 
     def next_group_fixture(self):
         g=self.my_group; mn=self.my_team_name
-        fixtures=self.group_fixtures[g]
-        idx=self.group_fixture_idx[g]
+        fixtures=self.group_fixtures[g]; idx=self.group_fixture_idx[g]
         while idx<len(fixtures):
             h,a=fixtures[idx]
-            if h==mn or a==mn:
-                return (h==mn),(a if h==mn else h)
-            self._sim_group_cpu(g,h,a,idx)
-            idx+=1
+            if h==mn or a==mn: return (h==mn),(a if h==mn else h)
+            self._sim_group_cpu(g,h,a); idx+=1
         return None,None
 
-    def _sim_group_cpu(self,g,h,a,idx):
-        hg=max(0,int(random.gauss(1.2,0.8)))
-        ag=max(0,int(random.gauss(1.0,0.8)))
-        self._record_group(g,h,a,hg,ag)
-        self.group_fixture_idx[g]+=1
+    def _sim_group_cpu(self,g,h,a):
+        hg=max(0,int(random.gauss(1.2,0.8))); ag=max(0,int(random.gauss(1.0,0.8)))
+        self._record_group(g,h,a,hg,ag); self.group_fixture_idx[g]+=1
 
     def _record_group(self,g,hn,an,hg,ag):
-        h=self.group_table[g].get(hn)
-        a=self.group_table[g].get(an)
+        h=self.group_table[g].get(hn); a=self.group_table[g].get(an)
         if not h or not a: return
         h.gf+=hg;h.ga+=ag;a.gf+=ag;a.ga+=hg
         if hg>ag: h.w+=1;a.l+=1
@@ -390,53 +364,42 @@ class UCL(Competition):
         else: h.d+=1;a.d+=1
 
     def record_my_group_result(self,is_home,opp,mg,og):
-        g=self.my_group;mn=self.my_team_name
+        g=self.my_group; mn=self.my_team_name
         if is_home: self._record_group(g,mn,opp,mg,og)
         else:       self._record_group(g,opp,mn,og,mg)
         self.group_fixture_idx[g]+=1
-        # 다른 조 CPU 경기 진행
         for gg in self.GROUP_TEAMS:
             if gg==g: continue
             while self.group_fixture_idx[gg]<len(self.group_fixtures[gg]):
                 hh,aa=self.group_fixtures[gg][self.group_fixture_idx[gg]]
-                self._sim_group_cpu(gg,hh,aa,self.group_fixture_idx[gg])
+                self._sim_group_cpu(gg,hh,aa)
 
     def init_knockout(self):
-        """조별 2위까지 추출 → 16강 대진"""
         qualifiers=[]
         for g in sorted(self.GROUP_TEAMS.keys()):
-            sorted_t=sorted(self.group_table[g].values(),
-                            key=lambda e:(-e.pts,-e.gd,-e.gf))
+            sorted_t=sorted(self.group_table[g].values(),key=lambda e:(-e.pts,-e.gd,-e.gf))
             qualifiers+=[t.name for t in sorted_t[:2]]
         self.ko=KnockoutCup("UCL 토너먼트",qualifiers,self.my_team_name)
         self.phase="knockout"
 
     def sorted_group(self,g):
-        return sorted(self.group_table[g].values(),
-                      key=lambda e:(-e.pts,-e.gd,-e.gf,e.name))
+        return sorted(self.group_table[g].values(),key=lambda e:(-e.pts,-e.gd,-e.gf,e.name))
 
     def to_dict(self):
         d=super().to_dict()
-        d.update({
-            "my_team_name":self.my_team_name,"my_group":self.my_group,
-            "group_table":{g:{n:e.to_dict() for n,e in t.items()} for g,t in self.group_table.items()},
-            "group_fixtures":self.group_fixtures,
-            "group_fixture_idx":self.group_fixture_idx,
-            "phase":self.phase,
-            "ko":self.ko.to_dict() if self.ko else None,
-        })
+        d.update({"my_team_name":self.my_team_name,"my_group":self.my_group,
+                  "group_table":{g:{n:e.to_dict() for n,e in t.items()} for g,t in self.group_table.items()},
+                  "group_fixtures":self.group_fixtures,"group_fixture_idx":self.group_fixture_idx,
+                  "phase":self.phase,"ko":self.ko.to_dict() if self.ko else None})
         return d
 
     @classmethod
     def from_dict(cls,d):
-        obj=cls.__new__(cls)
-        Competition.__init__(obj,d["name"])
-        obj.my_team_name=d["my_team_name"]
-        obj.my_group=d["my_group"]
+        obj=cls.__new__(cls); Competition.__init__(obj,d["name"])
+        obj.my_team_name=d["my_team_name"]; obj.my_group=d["my_group"]
         obj.group_table={g:{n:LeagueEntry.from_dict(e) for n,e in t.items()} for g,t in d["group_table"].items()}
         obj.group_fixtures={g:[tuple(f) for f in fx] for g,fx in d["group_fixtures"].items()}
-        obj.group_fixture_idx=d["group_fixture_idx"]
-        obj.phase=d["phase"]
+        obj.group_fixture_idx=d["group_fixture_idx"]; obj.phase=d["phase"]
         obj.ko=KnockoutCup.from_dict(d["ko"]) if d.get("ko") else None
         return obj
 
@@ -558,10 +521,11 @@ class SimulatorEngine:
         self.transfer_pool=make_transfer_pool()
         self.my_team=None
         self.league=None; self.fa_cup=None; self.league_cup=None; self.ucl=None
-        # CPU 팀 풀
+        self.schedule_idx=0
         self._cpu_pool={}
 
-    def _get_cpu(self, name):
+    # ── CPU 팀 생성 ──────────────────────────────────────────────────────────
+    def _get_cpu(self,name):
         if name not in self._cpu_pool:
             base_stats={
                 "Manchester City":90,"Arsenal":87,"Liverpool":87,"Chelsea":83,
@@ -586,7 +550,7 @@ class SimulatorEngine:
     def _notify_date(self):
         if self.date_callback: self.date_callback(str(self.game_date))
 
-    # ── 신규 게임 ─────────────────────────────────────────────────────────
+    # ── 신규 게임 ─────────────────────────────────────────────────────────────
     def setup_new_game(self):
         self.log("2026년, 맨체스터 유나이티드의 새 감독으로 부임했다.")
         starters=[
@@ -616,6 +580,7 @@ class SimulatorEngine:
         ]
         self.my_team=Team("Manchester United",250,starters,subs)
         self.game_date=GameDate(2026,8,8)
+        self.schedule_idx=0
         self._init_competitions()
         self._notify_date(); self.save_game()
 
@@ -626,11 +591,45 @@ class SimulatorEngine:
         self.league_cup=KnockoutCup("리그컵",LEAGUE_CUP_TEAMS,mn)
         self.ucl=UCL(mn)
 
-    # ── 경기 핵심 로직 ────────────────────────────────────────────────────
-    def _sim_match(self, home, away_team_obj):
-        """home=내 Team 객체, away=Team 객체 → (hg, ag)"""
-        hm=home; am=away_team_obj
-        hg=ag=0
+    # ── 다음 경기 (일정 기반) ─────────────────────────────────────────────────
+    def peek_next_match(self):
+        """다음 경기 대회명 미리보기 (진행하지 않음)"""
+        idx=self.schedule_idx
+        while idx<len(SEASON_SCHEDULE):
+            comp=SEASON_SCHEDULE[idx]
+            if self._comp_available(comp): return COMP_LABEL[comp]
+            idx+=1
+        return None
+
+    def _comp_available(self,comp):
+        if comp=="pl":  return not self.league.is_finished
+        if comp=="fa":  return not self.fa_cup.eliminated and not self.fa_cup.champion
+        if comp=="lc":  return not self.league_cup.eliminated and not self.league_cup.champion
+        if comp=="ucl": return self.ucl.is_active
+        return False
+
+    def next_match(self):
+        """일정에 따라 다음 경기 자동 실행"""
+        while self.schedule_idx<len(SEASON_SCHEDULE):
+            comp=SEASON_SCHEDULE[self.schedule_idx]
+            self.schedule_idx+=1
+            if not self._comp_available(comp):
+                continue
+            # 어떤 대회인지 예고
+            self.log(f"\n  ▶▶  다음 경기: {COMP_LABEL[comp]}")
+            if self.game_date.is_transfer_window():
+                self.log(f"  💰 이적 시장이 열려 있습니다! ({self.game_date})")
+            if comp=="pl":   self._play_league(); return
+            if comp=="fa":   self._play_cup(self.fa_cup,  "FA컵"); return
+            if comp=="lc":   self._play_cup(self.league_cup,"리그컵"); return
+            if comp=="ucl":  self._play_ucl(); return
+
+        self.log("\n🏁 이번 시즌 모든 일정이 완료되었다!")
+        self._show_league_table()
+
+    # ── 경기 핵심 로직 ────────────────────────────────────────────────────────
+    def _sim_match(self,home,away_team_obj):
+        hm=home; am=away_team_obj; hg=ag=0
         for half in range(1,3):
             offset=0 if half==1 else 45
             ec=random.randint(12,16)+int(hm.tempo/25)
@@ -688,10 +687,10 @@ class SimulatorEngine:
         for p in hm.all_players():
             if p.injured_days>0: p.injured_days-=1
 
-    def _match_header(self, comp_name, home_name, away_name, is_home):
+    def _match_header(self,comp_name,home_name,away_name,is_home):
         hm=self.my_team
         self.log(f"\n{'='*70}")
-        self.log(f"  📅 {self.game_date}  |  🏆 {comp_name}")
+        self.log(f"  📅 {self.game_date}  |  {comp_name}")
         if is_home:
             self.log(f"  ⚽  {home_name}  (홈)  VS  {away_name}  (원정)")
         else:
@@ -699,23 +698,22 @@ class SimulatorEngine:
         self.log(f"  전술: {hm.formation} | 성향: {hm.mentality} | 압박: {hm.press} | 템포: {hm.tempo}")
         self.log(f"{'='*70}")
 
-    # ── 리그 경기 ─────────────────────────────────────────────────────────
-    def play_league(self):
+    # ── 프리미어 리그 ─────────────────────────────────────────────────────────
+    def _play_league(self):
         if self.league.is_finished:
             self.log("이번 시즌 리그 일정이 모두 끝났다."); return
         is_home,opp_name=self.league.next_my_fixture()
         if opp_name is None:
             self.log("리그 시즌 종료!"); self._show_league_table(); return
         opp=self._get_cpu(opp_name)
-        self._match_header("프리미어 리그",self.my_team.name,opp_name,is_home)
+        self._match_header("🏴󠁧󠁢󠁥󠁮󠁧󠁿 프리미어 리그",self.my_team.name,opp_name,is_home)
         if is_home: hg,ag=self._sim_match(self.my_team,opp)
         else:
-            ag,hg=self._sim_match(self.my_team,opp)
-            hg,ag=ag,hg
+            ag,hg=self._sim_match(self.my_team,opp); hg,ag=ag,hg
         self.log(f"\n  최종: {self.my_team.name} {hg}:{ag} {opp_name}")
-        if hg>ag: self.my_team.wins+=1; self.log("  ✅ 승리!")
+        if hg>ag:   self.my_team.wins+=1;   self.log("  ✅ 승리!")
         elif hg<ag: self.my_team.losses+=1; self.log("  ❌ 패배.")
-        else: self.my_team.draws+=1; self.log("  🤝 무승부.")
+        else:       self.my_team.draws+=1;  self.log("  🤝 무승부.")
         self.league.record_my_result(is_home,opp_name,hg,ag)
         self._post_match_stamina()
         if self.league.is_finished: self._show_league_table()
@@ -732,111 +730,91 @@ class SimulatorEngine:
                      f"{e.gf:>4}{e.ga:>4}{e.gd:>+5}{e.pts:>5}{marker}")
         self.log(f"  {'─'*62}\n")
 
-    # ── FA컵 경기 ─────────────────────────────────────────────────────────
-    def play_fa_cup(self):
-        self._play_cup(self.fa_cup, "FA컵")
-
-    def play_league_cup(self):
-        self._play_cup(self.league_cup, "리그컵")
-
-    def _play_cup(self, cup, cup_name):
+    # ── 컵 대회 ───────────────────────────────────────────────────────────────
+    def _play_cup(self,cup,cup_name):
         if cup.eliminated:
             self.log(f"이미 {cup_name}에서 탈락했다."); return
         if cup.champion:
             self.log(f"{cup_name} 우승: {cup.champion}"); return
         opp_name=cup.my_opponent()
         if opp_name is None:
-            # 부전승
             cup.advance_cpu_matches()
             self.log(f"  🎉 {cup_name} {cup.round_name()} 부전승! 다음 라운드 진출.")
             cup.record_my_result(True)
-            if cup.champion:
-                self.log(f"  🏆 {cup_name} 우승!!")
+            if cup.champion: self.log(f"  🏆 {cup_name} 우승!!")
             self.save_game(); return
-
-        self._match_header(f"{cup_name} {cup.round_name()}",self.my_team.name,opp_name,True)
+        self._match_header(f"{'🏆' if '리그컵' not in cup_name else '🥈'} {cup_name} {cup.round_name()}",
+                           self.my_team.name,opp_name,True)
         opp=self._get_cpu(opp_name)
         hg,ag=self._sim_match(self.my_team,opp)
-
-        # 동점이면 연장+승부차기
         if hg==ag:
             self.log("  ⏱️  연장전 돌입!")
             eg=random.randint(0,1); eag=random.randint(0,1)
             hg+=eg; ag+=eag
             if hg==ag:
                 self.log("  🎯 승부차기!")
-                won=random.random()<0.5
-                if won: hg+=1
-                else:   ag+=1
-
+                if random.random()<0.5: hg+=1
+                else: ag+=1
         self.log(f"\n  최종: {self.my_team.name} {hg}:{ag} {opp_name}")
         won=hg>ag
-        if won:
-            self.my_team.wins+=1; self.log(f"  ✅ {cup_name} {cup.round_name()} 통과!")
-        else:
-            self.my_team.losses+=1; self.log(f"  ❌ {cup_name} 탈락.")
-
+        if won: self.my_team.wins+=1;   self.log(f"  ✅ {cup_name} {cup.round_name()} 통과!")
+        else:   self.my_team.losses+=1; self.log(f"  ❌ {cup_name} 탈락.")
         cup.record_my_result(won)
-        if cup.champion:
-            self.log(f"  🏆🏆🏆  {cup_name} 우승!!!  🏆🏆🏆")
+        if cup.champion: self.log(f"  🏆🏆🏆  {cup_name} 우승!!!  🏆🏆🏆")
         self._post_match_stamina(); self.save_game()
 
-    # ── 챔피언스 리그 ────────────────────────────────────────────────────
-    def play_ucl(self):
+    # ── 챔피언스 리그 ─────────────────────────────────────────────────────────
+    def _play_ucl(self):
         ucl=self.ucl
         if ucl.phase=="group":
             if ucl.group_done:
                 self.log("UCL 조별리그가 끝났다. 토너먼트 단계로 진행한다.")
-                ucl.init_knockout()
-                self._show_ucl_groups()
-                self.save_game(); return
+                ucl.init_knockout(); self._show_ucl_groups(); self.save_game(); return
             is_home,opp_name=ucl.next_group_fixture()
             if opp_name is None:
                 self.log("UCL 조별리그 완료!"); ucl.init_knockout()
                 self._show_ucl_groups(); self.save_game(); return
-            self._match_header(f"UCL 조별리그 (조 {ucl.my_group})",
-                               self.my_team.name,opp_name,is_home)
+            self._match_header(f"⭐ UCL 조별리그 (조 {ucl.my_group})",self.my_team.name,opp_name,is_home)
             opp=self._get_cpu(opp_name)
             if is_home: hg,ag=self._sim_match(self.my_team,opp)
             else: ag,hg=self._sim_match(self.my_team,opp); hg,ag=ag,hg
             self.log(f"\n  최종: {self.my_team.name} {hg}:{ag} {opp_name}")
-            if hg>ag: self.my_team.wins+=1; self.log("  ✅ 승리!")
+            if hg>ag:   self.my_team.wins+=1;   self.log("  ✅ 승리!")
             elif hg<ag: self.my_team.losses+=1; self.log("  ❌ 패배.")
-            else: self.my_team.draws+=1; self.log("  🤝 무승부.")
+            else:       self.my_team.draws+=1;  self.log("  🤝 무승부.")
             ucl.record_my_group_result(is_home,opp_name,hg,ag)
         else:
-            # 토너먼트
             self._play_cup(ucl.ko,"UCL 토너먼트")
         self._post_match_stamina(); self.save_game()
 
     def _show_ucl_groups(self):
-        ucl=self.ucl
-        for g in sorted(ucl.GROUP_TEAMS.keys()):
+        for g in sorted(self.ucl.GROUP_TEAMS.keys()):
             self.log(f"\n  ── UCL 조 {g} ──")
             self.log(f"  {'팀':<24}{'경기':>4}{'승':>4}{'무':>4}{'패':>4}{'득':>4}{'실':>4}{'승점':>5}")
-            for e in ucl.sorted_group(g):
+            for e in self.ucl.sorted_group(g):
                 m=e.w+e.d+e.l
                 self.log(f"  {e.name:<24}{m:>4}{e.w:>4}{e.d:>4}{e.l:>4}{e.gf:>4}{e.ga:>4}{e.pts:>5}")
 
-    # ── 순위표 / 대회 현황 보기 ───────────────────────────────────────────
+    # ── 순위표 보기 ────────────────────────────────────────────────────────────
     def show_standings(self):
         self._show_league_table()
         self._show_ucl_groups()
-        # 컵 현황
         for cup in [self.fa_cup,self.league_cup]:
-            if cup.champion:
-                self.log(f"  🏆 {cup.name} 우승: {cup.champion}")
-            elif cup.eliminated:
-                self.log(f"  ❌ {cup.name}: 탈락")
-            else:
-                self.log(f"  🔵 {cup.name}: {cup.round_name()} 진행 중")
+            if cup.champion:   self.log(f"  🏆 {cup.name} 우승: {cup.champion}")
+            elif cup.eliminated: self.log(f"  ❌ {cup.name}: 탈락")
+            else: self.log(f"  🔵 {cup.name}: {cup.round_name()} 진행 중")
+        nxt=self.peek_next_match()
+        if nxt:
+            self.log(f"\n  ▶ 다음 예정 경기: {nxt}")
+        else:
+            self.log("\n  🏁 시즌 일정이 모두 완료되었습니다.")
 
-    # ── 스쿼드 ───────────────────────────────────────────────────────────
+    # ── 스쿼드 ────────────────────────────────────────────────────────────────
     def show_squad_detailed(self):
         win=tk.Toplevel(self.root)
-        win.title("스쿼드 상세 (10-스탯)"); win.geometry("1100x550"); win.configure(bg="#0d1117")
+        win.title("스쿼드 상세 (10-스탯)"); win.geometry("1100x600"); win.configure(bg="#0d1117")
         cols=("구분","이름","나이","포지션","OVR","속력","가속","골결","슛파워","짧패","시야","태클","대인방어","몸싸움","점프","체력")
-        tree=ttk.Treeview(win,columns=cols,show="headings",height=20)
+        tree=ttk.Treeview(win,columns=cols,show="headings",height=22)
         for c in cols:
             tree.heading(c,text=c)
             tree.column(c,width=55 if c not in ["이름","구분","포지션"] else (120 if c=="이름" else 60),anchor="center")
@@ -863,7 +841,7 @@ class SimulatorEngine:
             lst[idx].instruction=instr
             self.log(f"[개인 지침] {lst[idx].name} → '{instr}'")
 
-    # ── 이적 ─────────────────────────────────────────────────────────────
+    # ── 이적 ──────────────────────────────────────────────────────────────────
     def transfer_buy(self,pool_idx,to_starter):
         if not self.game_date.is_transfer_window(): self.log("이적 시장이 닫혀 있다."); return
         if pool_idx<0 or pool_idx>=len(self.transfer_pool): return
@@ -883,7 +861,7 @@ class SimulatorEngine:
         self.my_team.budget+=sp; self.transfer_pool.append(p)
         self.log(f"[방출] {p.name} +{sp}M  잔여:{self.my_team.budget}M"); self.save_game()
 
-    # ── 저장 / 로드 ───────────────────────────────────────────────────────
+    # ── 저장 / 로드 ───────────────────────────────────────────────────────────
     def save_game(self):
         os.makedirs(SAVE_DIR,exist_ok=True)
         try:
@@ -891,6 +869,7 @@ class SimulatorEngine:
                 json.dump({
                     "my_team":self.my_team.to_dict(),
                     "game_date":self.game_date.to_dict(),
+                    "schedule_idx":self.schedule_idx,
                     "league":self.league.to_dict() if self.league else None,
                     "fa_cup":self.fa_cup.to_dict() if self.fa_cup else None,
                     "league_cup":self.league_cup.to_dict() if self.league_cup else None,
@@ -920,18 +899,20 @@ class SimulatorEngine:
                                    ("wins",0),("draws",0),("losses",0)]:
                 setattr(self.my_team,attr,td.get(attr,default))
             if "game_date" in data: self.game_date=GameDate.from_dict(data["game_date"])
-            if data.get("league"): self.league=League.from_dict(data["league"])
-            else: self.league=League(self.my_team.name)
-            if data.get("fa_cup"): self.fa_cup=KnockoutCup.from_dict(data["fa_cup"])
-            else: self.fa_cup=KnockoutCup("FA컵",FA_CUP_TEAMS,self.my_team.name)
-            if data.get("league_cup"): self.league_cup=KnockoutCup.from_dict(data["league_cup"])
-            else: self.league_cup=KnockoutCup("리그컵",LEAGUE_CUP_TEAMS,self.my_team.name)
-            if data.get("ucl"): self.ucl=UCL.from_dict(data["ucl"])
-            else: self.ucl=UCL(self.my_team.name)
+            self.schedule_idx=data.get("schedule_idx",0)
+            if data.get("league"):      self.league=League.from_dict(data["league"])
+            else:                        self.league=League(self.my_team.name)
+            if data.get("fa_cup"):      self.fa_cup=KnockoutCup.from_dict(data["fa_cup"])
+            else:                        self.fa_cup=KnockoutCup("FA컵",FA_CUP_TEAMS,self.my_team.name)
+            if data.get("league_cup"):  self.league_cup=KnockoutCup.from_dict(data["league_cup"])
+            else:                        self.league_cup=KnockoutCup("리그컵",LEAGUE_CUP_TEAMS,self.my_team.name)
+            if data.get("ucl"):         self.ucl=UCL.from_dict(data["ucl"])
+            else:                        self.ucl=UCL(self.my_team.name)
             owned={p.name for p in self.my_team.all_players()}
             self.transfer_pool=[p for p in self.transfer_pool if p.name not in owned]
             self._notify_date()
-            self.log("데이터 로드 완료.")
+            nxt=self.peek_next_match()
+            self.log(f"데이터 로드 완료.  ▶ 다음 예정 경기: {nxt if nxt else '시즌 종료'}")
         except Exception as e:
             self.log(f"로드 실패({e}), 새 게임 시작.")
             self.setup_new_game()
@@ -1015,7 +996,6 @@ class TransferWindow(tk.Toplevel):
         self.lbl_b=tk.Label(top,text="",font=("Consolas",10),bg="#0d1117",fg="#f0c040"); self.lbl_b.pack(side=tk.RIGHT)
         self.lbl_w=tk.Label(top,text="",font=("Consolas",9),bg="#0d1117",fg="#aaa"); self.lbl_w.pack(side=tk.RIGHT,padx=10)
         nb=ttk.Notebook(self); nb.pack(fill=tk.BOTH,expand=True,padx=10,pady=4)
-        # 영입
         bf=tk.Frame(nb,bg="#0d1117"); nb.add(bf,text="영입")
         ff=tk.Frame(bf,bg="#0d1117"); ff.pack(fill=tk.X,padx=6,pady=4)
         tk.Label(ff,text="포지션:",bg="#0d1117",fg="#c9d1d9",font=("Consolas",9)).pack(side=tk.LEFT,padx=4)
@@ -1033,7 +1013,6 @@ class TransferWindow(tk.Toplevel):
         tk.Button(bbf,text="선발로 영입",width=14,bg="#1f6feb",fg="white",command=lambda:self._buy(True)).pack(side=tk.LEFT,padx=6)
         tk.Button(bbf,text="후보로 영입",width=14,bg="#238636",fg="white",command=lambda:self._buy(False)).pack(side=tk.LEFT,padx=6)
         tk.Button(bbf,text="새로고침",width=10,command=self._refresh).pack(side=tk.LEFT,padx=6)
-        # 방출
         sf=tk.Frame(nb,bg="#0d1117"); nb.add(sf,text="방출")
         cols2=("구분","번호","이름","포지션","OVR","체력","예상료")
         self.st=ttk.Treeview(sf,columns=cols2,show="headings",height=16)
@@ -1071,44 +1050,53 @@ class TransferWindow(tk.Toplevel):
 
 class FM_GUI:
     def __init__(self,root):
-        self.root=root; self.root.title("FM 2026 PRO"); self.root.geometry("900x720"); self.root.configure(bg="#0d1117")
+        self.root=root; self.root.title("FM 2026 PRO")
+        self.root.geometry("900x740"); self.root.configure(bg="#0d1117")
 
-        # 상단바
+        # 상단 바
         bar=tk.Frame(self.root,bg="#161b22",pady=5); bar.pack(fill=tk.X)
-        tk.Label(bar,text="⚽ FM 2026 PRO",font=("Consolas",11,"bold"),bg="#161b22",fg="#58a6ff").pack(side=tk.LEFT,padx=12)
-        self.lbl_date=tk.Label(bar,text="",font=("Consolas",10),bg="#161b22",fg="#f0c040"); self.lbl_date.pack(side=tk.RIGHT,padx=12)
+        tk.Label(bar,text="⚽ FM 2026 PRO",font=("Consolas",11,"bold"),
+                 bg="#161b22",fg="#58a6ff").pack(side=tk.LEFT,padx=12)
+        self.lbl_date=tk.Label(bar,text="",font=("Consolas",10),
+                                bg="#161b22",fg="#f0c040"); self.lbl_date.pack(side=tk.RIGHT,padx=12)
 
-        # 로그
-        self.text_area=scrolledtext.ScrolledText(self.root,wrap=tk.WORD,width=120,height=30,
+        # 다음 경기 예고 배너
+        self.lbl_next=tk.Label(self.root,text="",font=("Consolas",10,"bold"),
+                                bg="#161b22",fg="#3fb950",pady=4)
+        self.lbl_next.pack(fill=tk.X,padx=0)
+
+        # 로그창
+        self.text_area=scrolledtext.ScrolledText(self.root,wrap=tk.WORD,width=120,height=28,
                                                  font=("Consolas",9),bg="#0d1117",fg="#c9d1d9")
-        self.text_area.pack(pady=6,padx=10,fill=tk.BOTH,expand=True)
+        self.text_area.pack(pady=4,padx=10,fill=tk.BOTH,expand=True)
 
-        # 버튼 행 1 — 관리
+        # 행 1 — 관리 버튼
         f1=tk.Frame(self.root,bg="#0d1117"); f1.pack(pady=2)
         for txt,cmd in [
-            ("스쿼드",      lambda:self.engine.show_squad_detailed()),
-            ("전술 설정",   lambda:TacticWindow(self.root,self.engine)),
-            ("개인 지침",   lambda:InstructionWindow(self.root,self.engine)),
-            ("선수 교체",   self.cmd_sub),
-            ("이적 시장",   lambda:TransferWindow(self.root,self.engine)),
-            ("순위표",      lambda:self.engine.show_standings()),
+            ("스쿼드",    lambda:self.engine.show_squad_detailed()),
+            ("전술 설정", lambda:TacticWindow(self.root,self.engine)),
+            ("개인 지침", lambda:InstructionWindow(self.root,self.engine)),
+            ("선수 교체", self.cmd_sub),
+            ("이적 시장", lambda:TransferWindow(self.root,self.engine)),
+            ("순위표",    lambda:self.engine.show_standings()),
         ]:
             tk.Button(f1,text=txt,command=cmd,bg="#21262d",fg="#c9d1d9",
                       font=("Consolas",9),padx=6,pady=3).pack(side=tk.LEFT,padx=3)
 
-        # 버튼 행 2 — 경기 진행
-        f2=tk.Frame(self.root,bg="#0d1117"); f2.pack(pady=2)
-        tk.Label(f2,text="경기 진행:",bg="#0d1117",fg="#8b949e",font=("Consolas",9)).pack(side=tk.LEFT,padx=6)
-        for txt,cmd,color in [
-            ("🏴󠁧󠁢󠁥󠁮󠁧󠁿 프리미어 리그", lambda:self.engine.play_league(),    "#1f6feb"),
-            ("🏆 FA컵",              lambda:self.engine.play_fa_cup(),    "#8957e5"),
-            ("🥈 리그컵",            lambda:self.engine.play_league_cup(),"#6e40c9"),
-            ("⭐ 챔피언스리그",      lambda:self.engine.play_ucl(),       "#e3a80a"),
-        ]:
-            tk.Button(f2,text=txt,command=cmd,bg=color,fg="white",
-                      font=("Consolas",9,"bold"),padx=6,pady=3).pack(side=tk.LEFT,padx=4)
+        # 행 2 — 다음 경기 (메인 버튼)
+        f2=tk.Frame(self.root,bg="#0d1117"); f2.pack(pady=5)
+        tk.Button(f2,text="▶  다음 경기 진행",
+                  command=self.cmd_next_match,
+                  bg="#1f6feb",fg="white",
+                  font=("Consolas",12,"bold"),
+                  padx=20,pady=6,relief=tk.FLAT).pack(side=tk.LEFT,padx=8)
+        tk.Button(f2,text="다음 경기 확인",
+                  command=self.cmd_peek,
+                  bg="#21262d",fg="#c9d1d9",
+                  font=("Consolas",9),
+                  padx=8,pady=6).pack(side=tk.LEFT,padx=4)
 
-        # 버튼 행 3 — 기타
+        # 행 3 — 기타
         f3=tk.Frame(self.root,bg="#0d1117"); f3.pack(pady=2)
         tk.Button(f3,text="게임 저장",command=lambda:self.engine.save_game(),
                   width=12,bg="#238636",fg="white",font=("Consolas",9)).pack(side=tk.LEFT,padx=4)
@@ -1117,9 +1105,33 @@ class FM_GUI:
 
         self.engine=SimulatorEngine(self.root,self.write_log,self.update_date)
         self.engine.load_game()
+        self._update_next_banner()
 
-    def update_date(self,s): self.lbl_date.config(text=f"📅 {s}")
-    def write_log(self,t): self.text_area.insert(tk.END,t+"\n"); self.text_area.see(tk.END)
+    def update_date(self,s):
+        self.lbl_date.config(text=f"📅 {s}")
+        self._update_next_banner()
+
+    def _update_next_banner(self):
+        nxt=self.engine.peek_next_match() if self.engine.my_team else None
+        if nxt:
+            self.lbl_next.config(text=f"  ▶ 다음 예정 경기:  {nxt}")
+        else:
+            self.lbl_next.config(text="  🏁 이번 시즌 일정 완료")
+
+    def write_log(self,t):
+        self.text_area.insert(tk.END,t+"\n"); self.text_area.see(tk.END)
+
+    def cmd_next_match(self):
+        self.engine.next_match()
+        self._update_next_banner()
+
+    def cmd_peek(self):
+        nxt=self.engine.peek_next_match()
+        if nxt:
+            self.write_log(f"\n  ▶ 다음 예정 경기: {nxt}")
+        else:
+            self.write_log("\n  🏁 이번 시즌 모든 일정이 완료되었다.")
+
     def cmd_sub(self):
         si=simpledialog.askinteger("OUT","뺄 선발 번호 (1~11):",parent=self.root)
         if si:
